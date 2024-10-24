@@ -1,74 +1,96 @@
 from flask import Flask, request, jsonify
 from flask_sqlalchemy import SQLAlchemy
+import os
 
 app = Flask(__name__)
 
-# Configure PostgreSQL database
-app.config['SQLALCHEMY_DATABASE_URI'] = 'postgresql://username:password@localhost/eventdrive_db'
+# Config for connecting to the PostgreSQL database
+app.config['SQLALCHEMY_DATABASE_URI'] = 'postgresql://username:password@localhost/eventdrives'
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 
 db = SQLAlchemy(app)
 
-# Models
+# EventDrive model
 class EventDrive(db.Model):
     __tablename__ = 'event_drives'
     id = db.Column(db.Integer, primary_key=True)
     name = db.Column(db.String(100), nullable=False)
-    description = db.Column(db.String(255))
+    description = db.Column(db.String(200), nullable=False)
+    date = db.Column(db.Date, nullable=False)
     location = db.Column(db.String(100), nullable=False)
-    date = db.Column(db.DateTime, nullable=False)
 
+# Registration model
 class Registration(db.Model):
     __tablename__ = 'registrations'
     id = db.Column(db.Integer, primary_key=True)
-    user_name = db.Column(db.String(100), nullable=False)
-    email = db.Column(db.String(100), nullable=False)
     event_id = db.Column(db.Integer, db.ForeignKey('event_drives.id'), nullable=False)
-    event = db.relationship('EventDrive', backref=db.backref('registrations', lazy=True))
+    participant_name = db.Column(db.String(100), nullable=False)
+    email = db.Column(db.String(100), nullable=False)
 
-# Initialize the database (run once)
-# db.create_all()
+# Initialize the database
+@app.before_first_request
+def create_tables():
+    db.create_all()
 
-# Endpoint to create an event drive
-@app.route('/create_event', methods=['POST'])
-def create_event():
+# Endpoint to create a new event drive
+@app.route('/eventdrives', methods=['POST'])
+def create_event_drive():
     data = request.get_json()
-    try:
-        new_event = EventDrive(
-            name=data['name'],
-            description=data.get('description'),
-            location=data['location'],
-            date=data['date']
-        )
-        db.session.add(new_event)
-        db.session.commit()
-        return jsonify({'message': 'Event created successfully!'}), 201
-    except Exception as e:
-        return jsonify({'error': str(e)}), 400
+    
+    # Ensure the necessary data is provided
+    if not all(k in data for k in ("name", "description", "date", "location")):
+        return jsonify({"error": "Missing event drive data"}), 400
+    
+    # Create a new event
+    new_event = EventDrive(
+        name=data['name'],
+        description=data['description'],
+        date=data['date'],
+        location=data['location']
+    )
+    
+    db.session.add(new_event)
+    db.session.commit()
+    
+    return jsonify({"message": "Event drive created successfully"}), 201
 
-# Endpoint to register for an event
-@app.route('/register', methods=['POST'])
-def register():
+# Endpoint to register for an event drive
+@app.route('/eventdrives/<int:event_id>/register', methods=['POST'])
+def register_for_event_drive(event_id):
     data = request.get_json()
-    try:
-        event = EventDrive.query.get(data['event_id'])
-        if event is None:
-            return jsonify({'error': 'Event not found'}), 404
-        
-        new_registration = Registration(
-            user_name=data['user_name'],
-            email=data['email'],
-            event_id=data['event_id']
-        )
-        db.session.add(new_registration)
-        db.session.commit()
-        return jsonify({'message': 'Registered successfully!'}), 201
-    except Exception as e:
-        return jsonify({'error': str(e)}), 400
+    
+    # Ensure the necessary data is provided
+    if not all(k in data for k in ("participant_name", "email")):
+        return jsonify({"error": "Missing registration data"}), 400
 
-# Endpoint to get all events
-@app.route('/events', methods=['GET'])
-def get_events():
+    # Check if the event exists
+    event = EventDrive.query.get(event_id)
+    if not event:
+        return jsonify({"error": "Event drive not found"}), 404
+    
+    # Create a new registration
+    new_registration = Registration(
+        event_id=event_id,
+        participant_name=data['participant_name'],
+        email=data['email']
+    )
+    
+    db.session.add(new_registration)
+    db.session.commit()
+    
+    return jsonify({"message": "Registered for event drive successfully"}), 201
+
+# Endpoint to get all event drives
+@app.route('/eventdrives', methods=['GET'])
+def get_all_event_drives():
     events = EventDrive.query.all()
-    events_list = [{
-        'id': event.id
+    return jsonify([{
+        'id': event.id,
+        'name': event.name,
+        'description': event.description,
+        'date': event.date,
+        'location': event.location
+    } for event in events]), 200
+
+if __name__ == '__main__':
+    app.run(debug=True)
